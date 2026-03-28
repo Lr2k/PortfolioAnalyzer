@@ -16,10 +16,10 @@ from PortfolioAnalyzer.data.trade import (
     TradeRecord,
     TradeHistory,
     Currency,
-    Category,
     merge_trade_history,
 )
-from PortfolioAnalyzer.data.asset import (
+from PortfolioAnalyzer.data.share import Category
+from PortfolioAnalyzer.data.asset_id import (
     AssetIDs,
     FundID,
     StockID,
@@ -121,33 +121,44 @@ def parse_jpy_trade_history(trade_history: DataFrame) -> tuple[TradeHistory, Ass
     amounts = trade_history.loc[:, "約定数量"].astype(dtype=Float64Dtype())
     dates = to_datetime(trade_history.loc[:, "約定日"])
 
+    tickers = trade_history.loc[:, "銘柄コード"].astype(StringDtype()).str.strip()
+    exchanges = trade_history.loc[:, "市場"].astype(StringDtype()).str.strip()
+
+    fund_mask = category == Category.FUND
+    stock_mask = category == Category.STOCK
+
+    def make_id(n, c, t, e):
+        if c == Category.FUND:
+            return FundID(name=n)
+        else:
+            return StockID(name=n, ticker=t, exchange=e)
+
     parsed_trade_history = TradeHistory(
         records=[
             TradeRecord(
                 date=d.date(),
                 currency=Currency.JPY,
                 action=a,
-                name=n,
-                category=c,
+                id=make_id(n, c, t, e),
                 price=p,
                 amount=amt,
             )
-            for d, a, n, c, p, amt in zip(dates, action, names, category, prices, amounts)
+            for d, a, n, c, t, e, p, amt in zip(dates, action, names, category, tickers, exchanges, prices, amounts)
         ]
     )
 
-    fund_mask = category == Category.FUND
-    stock_mask = category == Category.STOCK
     ids = AssetIDs(
-        funds=[FundID(name=n) for n in names[fund_mask]],
-        stocks=[
-            StockID(name=n, ticker=t, exchange=e)
-            for n, t, e in zip(
-                names[stock_mask],
-                trade_history.loc[stock_mask, "銘柄コード"].astype(StringDtype()).str.strip(),
-                trade_history.loc[stock_mask, "市場"].astype(StringDtype()).str.strip(),
-            )
-        ],
+        records=(
+            [FundID(name=n) for n in names[fund_mask]] +
+            [
+                StockID(name=n, ticker=t, exchange=e)
+                for n, t, e in zip(
+                    names[stock_mask],
+                    tickers[stock_mask],
+                    exchanges[stock_mask],
+                )
+            ]
+        ),
     )
 
     return parsed_trade_history, ids
@@ -217,17 +228,16 @@ def parse_non_jpy_trade_history(trade_history: DataFrame) -> tuple[TradeHistory,
                 date=d.date(),
                 currency=cur,
                 action=act,
-                name=n,
-                category=Category.STOCK,
+                id=StockID(name=n, ticker=t, exchange=e),
                 price=p,
                 amount=amt,
             )
-            for d, cur, act, n, p, amt in zip(dates, currencies, actions, names, prices, amounts)
+            for d, cur, act, n, t, e, p, amt in zip(dates, currencies, actions, names, tickers, exchanges, prices, amounts)
         ]
     )
 
     ids = AssetIDs(
-        stocks=[StockID(name=n, ticker=t, exchange=e) for n, t, e in zip(names, tickers, exchanges)],
+        records=[StockID(name=n, ticker=t, exchange=e) for n, t, e in zip(names, tickers, exchanges)],
     )
 
     return parsed_trade_history, ids
@@ -281,8 +291,7 @@ if __name__=="__main__":
     )
 
     ids = AssetIDs(
-        funds=jpy_ids.funds + non_jpy_ids.funds,
-        stocks=jpy_ids.stocks + non_jpy_ids.stocks,
+        records=jpy_ids.records + non_jpy_ids.records,
     )
     history = merge_trade_history(jpy_trade_history, nonjpy_trade_history)
 

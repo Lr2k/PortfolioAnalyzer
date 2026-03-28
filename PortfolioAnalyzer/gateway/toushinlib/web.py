@@ -4,7 +4,8 @@ import requests as rq
 from pandas import StringDtype, Float64Dtype, read_csv, to_datetime
 
 from PortfolioAnalyzer.data.price import Prices, PriceRecord
-from PortfolioAnalyzer.data.share import Category, Currency
+from PortfolioAnalyzer.data.share import Currency
+from PortfolioAnalyzer.data.asset_id import FundID
 
 def get_fund_code(name:str) -> tuple[str, str]:
     '''
@@ -92,7 +93,7 @@ def get_fund_price(name: str, isin_code:str, fund_associate_code:str) -> Prices:
     Parameters
     ----------
     name : str
-        銘柄名。PriceRecordのnameに使用される。
+        銘柄名。FundID.name に使用される。
     isin_code : str
         ISINコード。
     fund_associate_code : str
@@ -115,8 +116,7 @@ def get_fund_price(name: str, isin_code:str, fund_associate_code:str) -> Prices:
     return Prices(
         records= [
             PriceRecord(
-                category=Category.FUND,
-                name=name,
+                id=FundID(name=name),
                 date=date,
                 price=price,
                 currency=Currency.JPY,

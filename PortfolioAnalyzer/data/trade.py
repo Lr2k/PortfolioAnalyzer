@@ -3,14 +3,17 @@ from datetime import date
 
 from pydantic import BaseModel
 
-from PortfolioAnalyzer.data.share import (
-    Category,
-    Currency,
-)
+from PortfolioAnalyzer.data.share import Currency
 from PortfolioAnalyzer.data.asset import (
     AssetRecord,
     Assets,
     merge_assets,
+)
+from PortfolioAnalyzer.data.asset_id import (
+    FundID,
+    StockID,
+    CryptoID,
+    CashID,
 )
 
 class TradeAction(StrEnum):
@@ -19,35 +22,32 @@ class TradeAction(StrEnum):
 
 class TradeRecord(BaseModel):
     '''
-    単体の取引履歴を管理するクラス
+    単体の取引履歴。
 
     Attributes
     ----------
-    date : datetime.date
+    date : date
         取引の行われた日付。
-    currency : Currency
-        取引通貨。
     action : TradeAction
         売りまたは買い。(BUY / SELL)
-    name : str
-        取引した銘柄名。
-    category : Category
-        資産種別。
+    id : FundID | StockID | CryptoID | CashID
+        取引した銘柄の識別情報。
     price : float
         取引単価。
+    currency : Currency
+        取引通貨。
     amount : float
         取引数量。
     '''
     date: date
-    currency: Currency
     action: TradeAction
-    name: str
-    category: Category
+    id: FundID | StockID | CryptoID | CashID
     price: float
+    currency: Currency
     amount: float
 
     def __str__(self):
-        return f"{self.date.strftime('%Y/%m/%d')}  {self.name}  {self.category}  {self.action}  {self.amount}  {self.price} {self.currency}"
+        return f"{self.date.strftime('%Y/%m/%d')}  {self.id.name}  {self.id.category}  {self.action}  {self.amount}  {self.price} {self.currency}"
 
 class TradeHistory(BaseModel):
     '''
@@ -102,8 +102,7 @@ class TradeHistory(BaseModel):
         new_assets = Assets(
             records = [
                 AssetRecord(
-                    name = trade_record.name,
-                    category = trade_record.category,
+                    id = trade_record.id,
                     amount = trade_record.amount 
                         if trade_record.action == TradeAction.BUY
                         else -trade_record.amount,
@@ -118,7 +117,7 @@ class TradeHistory(BaseModel):
 
 def merge_trade_history(*trade: TradeHistory) -> TradeHistory:
     '''
-    複数のTradeHistoryのレコードを結合して返す。
+    複数の TradeHistory のレコードを結合して返す。
 
     Parameters
     ----------

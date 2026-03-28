@@ -12,13 +12,13 @@ import requests as rq
 from PortfolioAnalyzer.data.asset import (
     AssetRecord,
     Assets,
+)
+from PortfolioAnalyzer.data.asset_id import (
     AssetIDs,
     CryptoID,
     CashID,
 )
-from PortfolioAnalyzer.data.share import (
-    Category,
-)
+from PortfolioAnalyzer.data.share import Category
 
 PUBLIC_API_URL = "https://api.coin.z.com/public"
 PRIVATE_API_URL = "https://api.coin.z.com/private"
@@ -234,27 +234,29 @@ class ApiHandler(object):
 
         assets = Assets(
             records=[
-                AssetRecord(name=name, category=Category.CRYPT, amount=amo)
-                for name, _, amo in name_sym_amo
+                AssetRecord(id=CryptoID(name=name, symbol=sym), amount=amo)
+                for name, sym, amo in name_sym_amo
             ] + [
-                AssetRecord(name=jpy_name, category=Category.CASH, amount=jpy_amount)
+                AssetRecord(id=CashID(name=jpy_name, symbol='JPY'), amount=jpy_amount)
             ],
             timestamp=now_time.date(),
         )
 
         ids = AssetIDs(
-            cryptos=[CryptoID(name=name, symbol=sym) for name, sym, _ in name_sym_amo],
-            cashes=[CashID(name=jpy_name, symbol='JPY')],
+            records=(
+                [CryptoID(name=name, symbol=sym) for name, sym, _ in name_sym_amo] +
+                [CashID(name=jpy_name, symbol='JPY')]
+            ),
         )
 
         return assets, ids, unknown_symbols
 
 if __name__=="__main__":
     crypto_name_map = {"BTC": "Bitcoin", "JPY": "日本円", "BCH": "BitcoinCash"}
-    handler = ApiHandler(apikey_filepath=Path("/home/user0/.cred/gmo/apikey"))
+    handler = ApiHandler(apikey_filepath=Path("/mnt/disk1/credential/gmo/apikey"))
     assets, ids, unknown_sym = handler.get_assets(crypto_name_map)
     print(ids)
     print(assets)
     print(unknown_sym)
-    for crypto_id in ids.cryptos:
+    for crypto_id in ids.get_by_category(Category.CRYPT):
         print(f"{crypto_id.symbol}:{handler.get_rate(crypto_id.symbol)}JPY")

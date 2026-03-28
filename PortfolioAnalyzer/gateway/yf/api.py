@@ -3,7 +3,8 @@ from pandas import Timestamp, Timedelta
 from pydantic import BaseModel
 
 from PortfolioAnalyzer.data.price import Prices, PriceRecord
-from PortfolioAnalyzer.data.share import Category, Currency
+from PortfolioAnalyzer.data.share import Currency
+from PortfolioAnalyzer.data.asset_id import StockID
 
 
 class StockRequest(BaseModel):
@@ -16,11 +17,14 @@ class StockRequest(BaseModel):
         yfinance が扱う形式のティッカー（例: '9533.T', 'AAPL'）。
     name : str
         銘柄名。
+    exchange : str
+        取引所コード。(例: "T", "NYSE")
     currency : Currency
         価格の通貨。
     '''
     ticker: str
     name: str
+    exchange: str
     currency: Currency
 
 
@@ -39,7 +43,7 @@ def get_stocks_price(requests: list[StockRequest], date: Timestamp) -> Prices:
     Returns
     -------
     Prices
-        category=STOCK 固定。各銘柄の終値を収録した価格履歴。
+        各銘柄の終値を収録した価格履歴。
 
     Raises
     ------
@@ -47,7 +51,7 @@ def get_stocks_price(requests: list[StockRequest], date: Timestamp) -> Prices:
         最大3回（21日分）遡っても価格データが取得できなかった場合。
     '''
     tickers = [req.ticker for req in requests]
-    name_map = {req.ticker: req.name for req in requests}
+    id_map = {req.ticker: StockID(name=req.name, ticker=req.ticker, exchange=req.exchange) for req in requests}
     currency_map = {req.ticker: req.currency for req in requests}
 
     yf_tickers = yf.Tickers(tickers=tickers)
@@ -67,8 +71,7 @@ def get_stocks_price(requests: list[StockRequest], date: Timestamp) -> Prices:
             return Prices(
                 records=[
                     PriceRecord(
-                        category=Category.STOCK,
-                        name=name_map[ticker],
+                        id=id_map[ticker],
                         date=last_date.date(),
                         price=float(close_prices.loc[last_date, ticker]),
                         currency=currency_map[ticker],
@@ -83,9 +86,9 @@ def get_stocks_price(requests: list[StockRequest], date: Timestamp) -> Prices:
 
 if __name__ == '__main__':
     requests = [
-        StockRequest(ticker='9533.T', name='大阪ガス', currency=Currency.JPY),
-        StockRequest(ticker='3902.T', name='メディカル・データ・ビジョン', currency=Currency.JPY),
-        StockRequest(ticker='3719.T', name='ジェクシード', currency=Currency.JPY),
+        StockRequest(ticker='9533.T', name='大阪ガス', exchange='T', currency=Currency.JPY),
+        StockRequest(ticker='3902.T', name='メディカル・データ・ビジョン', exchange='T', currency=Currency.JPY),
+        StockRequest(ticker='3719.T', name='ジェクシード', exchange='T', currency=Currency.JPY),
     ]
     date = Timestamp(year=2025, month=12, day=1)
 

@@ -2,7 +2,8 @@ from datetime import date
 
 from pydantic import BaseModel, model_validator
 
-from PortfolioAnalyzer.data.share import Category, Currency
+from PortfolioAnalyzer.data.share import Currency
+from PortfolioAnalyzer.data.asset_id import FundID, StockID, CryptoID, CashID
 
 
 class ValuationRecord(BaseModel):
@@ -11,10 +12,8 @@ class ValuationRecord(BaseModel):
 
     Attributes
     ----------
-    name : str
-        銘柄名。
-    category : Category
-        資産種別。
+    id : FundID | StockID | CryptoID | CashID
+        銘柄の識別情報。
     value : float
         評価額。
     currency : Currency
@@ -22,8 +21,7 @@ class ValuationRecord(BaseModel):
     date : date
         評価額の基準日。
     '''
-    name: str
-    category: Category
+    id: FundID | StockID | CryptoID | CashID
     value: float
     currency: Currency
     date: date
@@ -33,7 +31,7 @@ class Valuation(BaseModel):
     '''
     複数銘柄の評価額情報を管理するクラス。
 
-    (name, category, date) の組み合わせでユニークなレコードを管理する。
+    (id, date) の組み合わせでユニークなレコードを管理する。
 
     Attributes
     ----------
@@ -55,7 +53,7 @@ class Valuation(BaseModel):
         '''
         初期化時にレコードの重複を除去する。
 
-        (name, category, date) をキーとして重複を判定し、先着のレコードを残す。
+        (id, date) をキーとして重複を判定し、先着のレコードを残す。
 
         Returns
         -------
@@ -63,7 +61,7 @@ class Valuation(BaseModel):
             重複除去済みの Valuation。
         '''
         self.records = list({
-            (rec.name, rec.category, rec.date): rec
+            (rec.id, rec.date): rec
             for rec in self.records
         }.values())
 
