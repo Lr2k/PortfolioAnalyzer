@@ -1,7 +1,7 @@
 from datetime import date
 from collections import defaultdict
 
-from pydantic import BaseModel, model_validator
+from pydantic import BaseModel, model_validator, ConfigDict
 
 from PortfolioAnalyzer.data.asset_id import AssetID, FundID, StockID, CryptoID, CashID
 
@@ -17,6 +17,7 @@ class AssetRecord(BaseModel):
     amount : float
         保有数量。
     '''
+    model_config = ConfigDict(frozen=True)
     id: FundID | StockID | CryptoID | CashID
     amount: float
 

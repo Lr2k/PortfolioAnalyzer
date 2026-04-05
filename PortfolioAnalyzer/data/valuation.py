@@ -1,6 +1,6 @@
 from datetime import date
 
-from pydantic import BaseModel, model_validator
+from pydantic import BaseModel, model_validator, ConfigDict
 
 from PortfolioAnalyzer.data.share import Currency
 from PortfolioAnalyzer.data.asset_id import FundID, StockID, CryptoID, CashID
@@ -21,6 +21,7 @@ class ValuationRecord(BaseModel):
     date : date
         評価額の基準日。
     '''
+    model_config = ConfigDict(frozen=True)
     id: FundID | StockID | CryptoID | CashID
     value: float
     currency: Currency

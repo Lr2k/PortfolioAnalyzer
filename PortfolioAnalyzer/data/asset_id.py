@@ -1,6 +1,6 @@
 from typing import ClassVar
 
-from pydantic import BaseModel, model_validator, PrivateAttr
+from pydantic import BaseModel, model_validator, PrivateAttr, ConfigDict
 
 from PortfolioAnalyzer.data.share import Category
 
@@ -13,6 +13,7 @@ class AssetID(BaseModel):
     name : str
         銘柄名。
     '''
+    model_config = ConfigDict(frozen=True)
     name: str
 
     def __hash__(self):
@@ -22,9 +23,7 @@ class AssetID(BaseModel):
         if not isinstance(other, AssetID):
             return False
         else:
-            pass
-
-        return self.category == other.category and self.name == other.name
+            return self.category == other.category and self.name == other.name
 
 class FundID(AssetID):
     '''
@@ -173,7 +172,7 @@ class AssetIDs(BaseModel):
         KeyError
             指定した銘柄情報が存在しない場合。
         '''
-        target = self._record_index.get(key=(category, name))
+        target = self._record_index.get((category, name))
         if target is None:
             raise KeyError(f"AssetIDが存在しません。(category:{category}, name:{name})")
         else:

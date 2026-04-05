@@ -1,7 +1,7 @@
 from enum import StrEnum
 from datetime import date
 
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 
 from PortfolioAnalyzer.data.share import Currency
 from PortfolioAnalyzer.data.asset import (
@@ -39,6 +39,7 @@ class TradeRecord(BaseModel):
     amount : float
         取引数量。
     '''
+    model_config = ConfigDict(frozen=True)
     date: date
     action: TradeAction
     id: FundID | StockID | CryptoID | CashID
