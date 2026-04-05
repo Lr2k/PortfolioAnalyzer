@@ -137,9 +137,12 @@ def load_data(path: Path) -> tuple[AssetIDs | None, list[Assets] | None, Prices 
         assets_ls = _dict_to_assets_ls(data_dict["AssetsLS"], asset_ids)
         prices = _dict_to_prices(data_dict["Prices"], asset_ids)
     else:
-        assets_ls = None
-        prices = None
-    
+        if data_dict["AssetsLS"] is not None or data_dict["Prices"] is not None:
+            raise ValueError("AssetIDs が存在しないにもかかわらず AssetsLS/Prices が含まれています。")
+        else:    
+            assets_ls = None
+            prices = None
+        
     rates = _dict_to_rates(data_dict["Rates"])
     trade_history = _dict_to_trade_history(data_dict["TradeHistory"], asset_ids)
 
