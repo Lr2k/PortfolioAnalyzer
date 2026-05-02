@@ -78,7 +78,7 @@ class Prices(BaseModel):
 
         return self
 
-    def get(self, id, target_date:date | None = None) -> PriceRecord | None:
+    def get(self, id, target_date:date | None = None, excact_date: bool = False) -> PriceRecord | None:
         '''
         指定銘柄・日付の価格情報を返す。
 
@@ -100,12 +100,39 @@ class Prices(BaseModel):
         date_rec = self._records_index.get(id)
         if date_rec is None:
             return None
+        elif excact_date:
+            return date_rec[target_date] if target_date in date_rec.keys() else None
         else:
             match [dt for dt in date_rec.keys() if target_date is None or dt <= target_date]:
                 case []:
                     return None
                 case dts:
                     return date_rec[max(dts)]
+        
+    @property
+    def currencies(self) -> set[Currency]:
+        return {rec.currency for rec in self.records}
 
     def __str__(self):
         return '\n'.join(str(p) for p in self.records)
+
+
+def merge_prices(*prices: Prices) -> Prices:
+    '''
+    複数の Prices を結合する。
+
+    Parameters
+    ----------
+    *prices : Prices
+        結合する価格情報。
+
+    Returns
+    -------
+    Prices
+        全レコードを結合した新しい Prices。
+    '''
+    new_records: list[PriceRecord] = list()
+    for p in prices:
+        new_records += p.records
+
+    return Prices(records=new_records)

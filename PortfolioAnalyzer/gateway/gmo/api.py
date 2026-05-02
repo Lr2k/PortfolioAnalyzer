@@ -1,7 +1,7 @@
 from pathlib import Path
 import hmac, hashlib
 import  time
-from datetime import datetime
+from datetime import datetime, date
 from configparser import (
     ConfigParser,
     MissingSectionHeaderError
@@ -18,7 +18,8 @@ from PortfolioAnalyzer.data.asset_id import (
     CryptoID,
     CashID,
 )
-from PortfolioAnalyzer.data.share import Category
+from PortfolioAnalyzer.data.share import Category, Currency
+from PortfolioAnalyzer.data.price import Prices, PriceRecord
 
 PUBLIC_API_URL = "https://api.coin.z.com/public"
 PRIVATE_API_URL = "https://api.coin.z.com/private"
@@ -150,38 +151,51 @@ class ApiHandler(object):
             headers=headers,
         ).json()
 
-    def get_rate(self, symbol: str) -> int:
+    def get_prices(self, crypt_ids: AssetIDs) -> Prices:
         '''
-        指定した暗号資産シンボルの最新レートを取得する。
+        指定した暗号資産の最新価格を取得する。
 
         Parameters
         ----------
-        symbol : str
-            暗号資産のシンボル。(例: "BTC", "ETH")
+        crypt_ids : AssetIDs
+            価格を取得する暗号資産の識別情報。Category.CRYPT 以外のレコードは無視される。
 
         Returns
         -------
-        int
-            最新レート（円）。
+        Prices
+            各暗号資産の最新価格レコード（円建て）。
         '''
-        response_dict = self.get(
-            path= f"/v1/ticker?symbol={symbol}",
-            private=False,
-        )
-        return int(response_dict["data"][0]["last"])
+        out_records = list()
+        for asset_id in crypt_ids.records:
+            if asset_id.category == Category.CRYPT:
+                data = self.get(
+                    path=f"/v1/ticker?symbol={asset_id.symbol}",
+                    private=False,
+                )["data"][0]
 
-    def get_assets(self, asset_name_map: dict[str, str]) -> tuple[Assets, AssetIDs, set[str]]:
+                out_records.append(
+                    PriceRecord(
+                        id=asset_id,
+                        date=datetime.fromisoformat(data["timestamp"]).date(),
+                        price=float(data["last"]),
+                        currency=Currency.JPY,
+                    )
+                )
+            else:
+                pass
+
+        return Prices(records=out_records)
+
+
+    def get_assets(self, asset_name_map: dict[str, str] | None = None) -> tuple[Assets, AssetIDs, list[str]]:
         '''
         GMOコインAPIから保有資産の残高と識別情報を取得する。
 
-        asset_name_mapに未登録のシンボルは "UnknownCrypto{シンボル}" という名前で
-        Assetsに含め、unknown_symbolsとして返す。
-        unknown_symbolsはasset_name_mapに追加すべきシンボルを把握するために使用できる。
-
         Parameters
         ----------
-        asset_name_map : dict[str, str]
+        asset_name_map : dict[str, str] | None, optional
             シンボルから銘柄名へのマッピング。(例: {"BTC": "Bitcoin", "JPY": "日本円"})
+            None または未登録のシンボルはシンボル名をそのまま銘柄名として使用する。
 
         Returns
         -------
@@ -189,8 +203,8 @@ class ApiHandler(object):
             現時点での保有資産の残高スナップショット。
         ids : AssetIDs
             保有資産の識別情報。
-        unknown_symbols : set[str]
-            asset_name_mapに未登録だったシンボルの集合。
+        unknown_symbols : list[str]
+            asset_name_map に未登録だったシンボルのリスト。
         '''
         now_time = datetime.now()
         timestamp = '{0}000'.format(int(time.mktime(now_time.timetuple())))
@@ -223,12 +237,16 @@ class ApiHandler(object):
                 case symbol, amount:
                     sym_amo_pairs.append((symbol, amount))
 
-        unknown_symbols = set(sym for sym, _ in sym_amo_pairs) - set(asset_name_map.keys())
+        unknown_symbols = list(set(sym for sym, _ in sym_amo_pairs) - set(asset_name_map.keys()))
 
-        name_sym_amo: list[tuple[str, str, float]] = [
-            (f'UnknownCrypto{sym}' if sym in unknown_symbols else asset_name_map[sym], sym, amo)
-            for sym, amo in sym_amo_pairs
-        ]
+        name_sym_amo: list[tuple[str, str, float]]
+        if asset_name_map is None:
+            name_sym_amo = [(sym, sym, amo) for sym, amo in sym_amo_pairs]
+        else:
+            name_sym_amo= [
+                (sym if sym in unknown_symbols else asset_name_map[sym], sym, amo)
+                for sym, amo in sym_amo_pairs
+            ]
 
         jpy_name = asset_name_map.get('JPY', 'UnknownCashJPY')
 

@@ -1,33 +1,16 @@
-from datetime import date, timedelta
+from datetime import datetime, date, timedelta, timezone
 
 import yfinance as yf
+from pandas import Timestamp
 from pydantic import BaseModel, PrivateAttr, model_validator
 
 from PortfolioAnalyzer.data.price import Prices, PriceRecord
-from PortfolioAnalyzer.data.share import Currency
-from PortfolioAnalyzer.data.asset_id import StockID
+from PortfolioAnalyzer.data.share import Currency, Category
+from PortfolioAnalyzer.data.asset_id import AssetIDs, StockID
 from PortfolioAnalyzer.data.rate import RateRecord, Rates
 
 
-class StockRequest(BaseModel):
-    '''
-    get_stocks_price に渡す銘柄リクエスト。
-
-    Attributes
-    ----------
-    ticker : str
-        yfinance が扱う形式のティッカー（例: '9533.T', 'AAPL'）。
-    name : str
-        銘柄名。
-    exchange : str
-        取引所コード。(例: "T", "NYSE")
-    currency : Currency
-        価格の通貨。
-    '''
-    ticker: str
-    name: str
-    exchange: str
-    currency: Currency
+JST = timezone(timedelta(hours=9))
 
 class RateRequest(BaseModel):
     '''
@@ -58,101 +41,114 @@ class RateRequest(BaseModel):
         else:
             return False
 
-def build_stock_requests(stock_ids: list[StockID], exchange_map: dict[str, str], currency_map: dict[str, Currency]) -> tuple[list[StockRequest],list[StockID]]:
-    '''
-    StockID のリストから StockRequest のリストを構築する。
+def _resolve_ticker(stock_id: StockID, exchange_map: dict[str, str], currency_map: dict[str, Currency]) -> tuple[str | None, Currency | None]:
+    """
+    株式銘柄に応じ、yfinanceでの問い合わせに利用できるティッカーと取引所で使用される通貨を解決する。
+    マッピングが欠如している場合はNoneを返す。
 
-    exchange_map・currency_map に取引所名が見つからない銘柄は第2返り値に含める。
+    Return
+    ------
+    str or None
+        yfinanceで使用できるティッカー
+    Currency or None 
+        取引所で使用される通貨。
+    """
+    exchange_ticker = exchange_map.get(stock_id.exchange)
+    currency = currency_map.get(stock_id.exchange)
 
-    Parameters
-    ----------
-    stock_ids : list[StockID]
-        変換対象の銘柄識別情報リスト。
-    exchange_map : dict[str, str]
-        取引所名から yfinance のサフィックスへのマッピング。
-        サフィックスが不要な取引所（例: NYSE）は空文字列 "" を指定する。
-    currency_map : dict[str, Currency]
-        取引所名から取引通貨へのマッピング。
-
-    Returns
-    -------
-    requests : list[StockRequest]
-        変換に成功した StockRequest のリスト。
-    missing : list[StockID]
-        exchange_map または currency_map に取引所名が見つからなかった StockID のリスト。
-    '''
-    sr_list: list[StockRequest] = list()
-    missing_list: list[StockID] = list()
-    for stock_id in stock_ids:
-        if stock_id.exchange in exchange_map.keys() and stock_id.exchange in currency_map.keys():
-            sr_list.append(StockRequest(
-                ticker=stock_id.ticker if exchange_map[stock_id.exchange] == ""
-                        else f"{stock_id.ticker}.{exchange_map[stock_id.exchange]}",
-                name=stock_id.name,
-                exchange=stock_id.exchange,
-                currency=currency_map[stock_id.exchange]
-            ))
-        else:
-            missing_list.append(stock_id)
+    ticker: str | None
+    match exchange_ticker:
+        case None:
+            ticker = None
+        case "":
+            ticker = stock_id.ticker
+        case x:
+            ticker = f"{stock_id.ticker}.{x}"
     
-    return sr_list, missing_list
+    return ticker, currency
 
-def get_stocks_price(requests: list[StockRequest], target_date: date) -> Prices:
+def _fetch_price_records(stock_id: StockID, ticker: str, currency: Currency, end_date: date, period_date: int) -> list[PriceRecord]:
+    """
+    １銘柄の株式の終値を取得する。データが取得できない場合は空のリストを返す。
+    """
+    yf_ticker = yf.Ticker(ticker)
+    res_df_close = yf_ticker.history(
+        period=f"{period_date}D",
+        end=end_date + timedelta(days=1)
+    )['Close'].dropna()
+    if res_df_close is None or res_df_close.empty:
+        return []
+    else:
+        res_min_date = res_df_close.index.min().date()
+        return [
+            PriceRecord(
+                id=stock_id,
+                date=target_date,
+                price=float(res_df_close.asof(Timestamp(target_date.isoformat()).tz_localize(JST))),
+                currency=currency,
+            )
+            for target_date in [end_date-td for td in map(timedelta, range(period_date))]
+            if target_date >= res_min_date
+        ]
+
+def get_stock_prices(stock_ids: AssetIDs, end_date: date, exchange_map: dict[str, str], currency_map: dict[str, Currency], period_date: int = 7) -> tuple[Prices, AssetIDs, AssetIDs]:
     '''
-    指定された日付、または指定された日からさかのぼって最新の終値を返す。
+    指定された日付、または指定された日からperiod_dateで指定された期間さかのぼって終値を返す。
+    当日の株式価格は不確定の可能性があるため、実行日の前日までの指定を受け入れる。
 
     Parameters
     ----------
-    requests : list[StockRequest]
-        取得対象の銘柄リスト。
-    target_date : date
-        基準日。未来の日付を指定した場合は本日として扱う。
-        指定日のデータが存在しない場合は最大3回（7日ずつ）遡って取得する。
-
+    stock_ids: AssetIDs
+        価格を取得したい銘柄を格納したAssetIDs。
+    end_date: date
+        価格を取得した日付。
+    exchange_map: dict[str, str]
+        AssetIDsで使用されている取引所の名称とyfinanceで使用されるサフィックスの組み合わせ。(例: {"東証":"T", "NYSE": ""})
+    currency_map: dict[str, str]
+        取引所と通貨の組み合わせを指定する。(例: {"東証":Currency.JPY, "NYSE":Currency.USD})
+    period_date: int, default is 7
+        指定された日付の価格が取得できなかった場合に遡る日数。
+    
     Returns
     -------
     Prices
         各銘柄の終値を収録した価格履歴。
+    AssetIDs
+        map_missing_ids, 取引所のサフィックスまたは通貨に関するマッピング情報が不足している銘柄。
+    AssetIDs
+        result_missing_ids, 価格情報を取得できなかった銘柄。
+
 
     Raises
     ------
     ValueError
-        最大3回（21日分）遡っても価格データが取得できなかった場合。
+        実行時以降の日付が指定されている場合。
     '''
-    tickers = [req.ticker for req in requests]
-    id_map = {req.ticker: StockID(name=req.name, ticker=req.ticker, exchange=req.exchange) for req in requests}
-    currency_map = {req.ticker: req.currency for req in requests}
+    if end_date >= date.today():
+        raise ValueError(f"end_dateには昨日までの日付を指定してください。(target_date:{target_date})")
+    else:
+        pass
 
-    yf_tickers = yf.Tickers(tickers=tickers)
-    retry_count = 0
-    target_date = date.today() if target_date > date.today() else target_date
-
-    while retry_count < 3:
-        df = yf_tickers.history(period='1W', end=target_date + timedelta(days=1), progress=False)
-        if df.empty:
-            target_date -= timedelta(days=7)
-            retry_count += 1
-            continue
+    price_ls = []
+    price_missing_id_ls = []
+    map_missing_id_ls = []
+    for s_id in stock_ids.records:
+        if s_id.category == Category.STOCK:
+            ticker, currency = _resolve_ticker(s_id, exchange_map, currency_map)
+            if ticker and currency:
+                match _fetch_price_records(s_id, ticker, currency, end_date, period_date):
+                    case []:
+                        price_missing_id_ls.append(s_id)
+                    case ps:
+                        price_ls += ps
+            else:
+                map_missing_id_ls.append(s_id)
         else:
-            close_prices = df.xs('Close', axis=1, level=0)
-            last_date = df.index.max()
-            retry_count += 1
-            return Prices(
-                records=[
-                    PriceRecord(
-                        id=id_map[ticker],
-                        date=last_date.date(),
-                        price=float(close_prices.loc[last_date, ticker]),
-                        currency=currency_map[ticker],
-                    )
-                    for ticker in tickers
-                ]
-            )
+            price_missing_id_ls.append(s_id)
 
-    msg = f'{tickers}について{target_date.strftime("%Y-%m-%d")}からさかのぼって21日間の情報を問い合わせましたが、情報を得られませんでした。'
-    raise ValueError(msg)
+    return Prices(records = price_ls), AssetIDs(records=map_missing_id_ls), AssetIDs(records=price_missing_id_ls)
 
-def get_rates(rate_requests: list[RateRequest], target_date: date) -> Rates:
+def get_rates(from_currencies: list[Currency], to_currency: Currency, target_date: date) -> Rates:
     '''
     指定された日付、または指定された日からさかのぼって最新の為替レートを返す。
 
@@ -173,12 +169,16 @@ def get_rates(rate_requests: list[RateRequest], target_date: date) -> Rates:
     ValueError
         最大3回（21日分）遡っても為替レートデータが取得できなかった場合。
     '''
-    rq_list = list(set(rate_requests))
+    rq_list = [
+        RateRequest(from_currency=from_currency, to_currency=to_currency)
+        for from_currency in from_currencies
+        if from_currency != to_currency
+    ]
     yf_tickers = yf.Tickers(tickers=[rq.ticker() for rq in rq_list])
 
     retry_count = 0
     while retry_count < 3:
-        res_df = yf_tickers.history(period='1W', end=target_date+timedelta(days=1), progress=False)
+        res_df = yf_tickers.history(period='1W', end=target_date+timedelta(days=1), progress=True)
         if res_df.empty:
             target_date -= timedelta(days=7)
             retry_count += 1
@@ -196,21 +196,21 @@ def get_rates(rate_requests: list[RateRequest], target_date: date) -> Rates:
                     ) for rq in rq_list
                 ]
             )
-    currency_set_str = ",".join([f"{rq.to_currency}/{rq.from_currency}" for rq in rq_list])
-    msg = f'{currency_set_str}について{target_date.strftime("%Y-%m-%d")}からさかのぼって21日間の情報を問い合わせましたが、情報を得られませんでした。'
-    raise ValueError(msg)
+    else:
+        currency_set_str = ",".join([f"{rq.to_currency}/{rq.from_currency}" for rq in rq_list])
+        msg = f'{currency_set_str}について{target_date.strftime("%Y-%m-%d")}からさかのぼって21日間の情報を問い合わせましたが、情報を得られませんでした。'
+        raise ValueError(msg)
         
 
 
 if __name__ == '__main__':
-    print(get_rates(rate_requests=[RateRequest(from_currency=Currency.USD, to_currency=Currency.JPY),], target_date=date.today()))
 
-    stock_id_list = [
+    ids = AssetIDs(records = [
         StockID(name='大阪ガス', ticker='9533', exchange='東証', currency=Currency.JPY),
         StockID(name='メディカル・データ・ビジョン', ticker='3902',exchange='東証', currency=Currency.JPY),
         StockID(name='ジェクシード', exchange='東証', ticker='3719', currency=Currency.JPY),
         StockID(name='AT&T', exchange="NYSE", ticker='T', currency=Currency.USD),
-    ]
+    ])
 
     exchange_map = {
         "東証": "T",
@@ -222,9 +222,8 @@ if __name__ == '__main__':
         "NYSE": Currency.USD,
     }
 
-    target_date = date(year=2025, month=12, day=1)
-    rq, miss = build_stock_requests(stock_id_list, exchange_map, currency_map)
-    print(miss)
-
-    prices = get_stocks_price(requests=rq, target_date=target_date)
+    target_date = date(year=2026, month=4, day=28)
+    prices, map_mis, res_mis = get_stock_prices(ids, target_date, exchange_map, currency_map,24)
     print(prices)
+    print(map_mis)
+    print(res_mis)

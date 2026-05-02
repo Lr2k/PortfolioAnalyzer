@@ -111,6 +111,7 @@ def parse_jpy_trade_history(trade_history: DataFrame) -> tuple[TradeHistory, Ass
     asset_ids : AssetIDs
         取引履歴から抽出した資産識別情報。
     '''
+
     action, category = _parse_jpy_trade_type(trade_type_series=trade_history.loc[:, "取引"])
 
     names = trade_history.loc[:, "銘柄"].astype(StringDtype()).str.strip()

@@ -39,7 +39,7 @@ class FundID(AssetID):
     category: ClassVar[Category] = Category.FUND
 
     def __str__(self):
-        return self.name
+        return f"{self.category} {self.name}"
 
 class StockID(AssetID):
     '''
@@ -62,7 +62,7 @@ class StockID(AssetID):
     exchange: str
 
     def __str__(self):
-        return f"{self.exchange} {self.ticker}  {self.name}"
+        return f"{self.category} {self.exchange} {self.ticker}  {self.name}"
 
 class CryptoID(AssetID):
     '''
@@ -82,7 +82,7 @@ class CryptoID(AssetID):
     symbol: str
 
     def __str__(self):
-        return f"{self.symbol}  {self.name}"
+        return f"{self.category} {self.symbol} {self.name}"
 
 class CashID(AssetID):
     '''
@@ -102,7 +102,7 @@ class CashID(AssetID):
     symbol: str
 
     def __str__(self):
-        return f"{self.symbol}  {self.name}"
+        return f"{self.category} {self.symbol} {self.name}"
 
 class AssetIDs(BaseModel):
     '''
@@ -178,9 +178,9 @@ class AssetIDs(BaseModel):
         else:
             return target
 
-    def get_by_category(self, category: Category) -> list[FundID | StockID | CryptoID | CashID]:
+    def get_by_category(self, category: Category) -> 'AssetIDs':
         '''
-        指定カテゴリの識別情報リストを返す。
+        指定カテゴリの識別情報を返す。
 
         Parameters
         ----------
@@ -189,24 +189,39 @@ class AssetIDs(BaseModel):
 
         Returns
         -------
-        list[FundID | StockID | CryptoID | CashID]
-            指定カテゴリの識別情報リスト。該当なしの場合は空リスト。
+        AssetIDs
+            指定カテゴリの識別情報。該当なしの場合は空の AssetIDs。
         '''
-        return list(
-            rec for key, rec in self._record_index.items()
-            if key[0] == category
+        return AssetIDs(
+            records = list(
+                rec for key, rec in self._record_index.items()
+                if key[0] == category
+            )
         )
-
-
+        
+        
 
     def __str__(self):
-        lines = []
-        lines.append("FundID:")
-        lines += [f"  {rec}" for rec in self.get_by_category(Category.FUND)]
-        lines.append("StockID:")
-        lines += [f"  {rec}" for rec in self.get_by_category(Category.STOCK)]
-        lines.append("CryptoID:")
-        lines += [f"  {rec}" for rec in self.get_by_category(Category.CRYPT)]
-        lines.append("CashID:")
-        lines += [f"  {rec}" for rec in self.get_by_category(Category.CASH)]
+        lines = [str(asset_id) for asset_id in self.records]
         return '\n'.join(lines)
+
+
+def merge_asset_ids(*asset_ids: AssetIDs) -> AssetIDs:
+    '''
+    複数の AssetIDs を結合する。
+
+    Parameters
+    ----------
+    *asset_ids : AssetIDs
+        結合する AssetIDs。
+
+    Returns
+    -------
+    AssetIDs
+        全レコードを結合した新しい AssetIDs。
+    '''
+    new_records: list[AssetID] = list()
+    for ids in asset_ids:
+        new_records += ids.records
+
+    return AssetIDs(records=new_records)

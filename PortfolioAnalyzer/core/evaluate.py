@@ -96,4 +96,4 @@ def convert_currency(valuation: Valuation, rates: Rates, to_currency: Currency, 
                         date=val.date,
                     )
                 ) 
-    return Valuation(val_records, val_timestamp), Valuation(missing_val_records, valuation.timestamp)
+    return Valuation(records=val_records, timestamp=val_timestamp), Valuation(records=missing_val_records, timestamp=valuation.timestamp)

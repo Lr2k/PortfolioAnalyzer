@@ -27,6 +27,9 @@ class ValuationRecord(BaseModel):
     currency: Currency
     date: date
 
+    def __str__(self):
+        return f"{self.id.category}  {self.id.name}  {self.value} {self.currency}  {self.date}"
+
 
 class Valuation(BaseModel):
     '''
@@ -67,3 +70,11 @@ class Valuation(BaseModel):
         }.values())
 
         return self
+    
+    def __str__(self):
+        lines = [f"timestamp:{self.timestamp}",]
+        for rec in self.records:
+            lines.append(rec.__str__())
+        
+        return "\n".join(lines)
+        
